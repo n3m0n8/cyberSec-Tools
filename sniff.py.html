@@ -1,0 +1,380 @@
+<html>
+<head>
+<title>sniff.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #7ec3e6;}
+.s1 { color: #ebebeb;}
+.s2 { color: #499936; font-style: italic;}
+.s3 { color: #ed864a;}
+.s4 { color: #54b33e;}
+.s5 { color: #ed864a; font-weight: bold;}
+.s6 { color: #33ccff; font-weight: bold;}
+</style>
+</head>
+<body bgcolor="#131314">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+sniff.py</font>
+</center></td></tr></table>
+<pre><span class="s0"># this packet sniffer was written by Bucky @thenewboston's online video guide. Website: https://thenewboston.com</span>
+<span class="s0"># DISCLAIMER : THIS PROGRAMME IS WRITTEN AND SHOWN SOLELY FOR EDUCATIONAL PURPOSES ONLY. DO NOT USE THIS FOR ANYTHING OTHER THAN LEARNING PURPOSES. NO LIABILITY CAN BE CLAIMED FOR ANY OTHER UNINTENDED USE AND/OR DEVELOPMENT OF THIS PROGRAMME.</span>
+<span class="s0"># NOTE the following begins with the programme along with explanatory notes. In the appendix at the bottom, you will find the raw programme without notes.</span>
+<span class="s0"># /////////BASIC BACKGROUND NOTES FOR NETWORKING CONTEXT\\\\</span>
+<span class="s2">''' 
+ASSUMING ETHERNET 802.3x type protocol because other protocols will have different Maximum Transmission Units and other quirks: 
+ 
+layer 4 transport  - either  (1)TCP or (2)UDP 
+data is incoming at the application layer levels 7,6,5 from whicher programmes are running. for instance a web browser's programme/execution communicated TCP information necessary for network activity. NOTE that TCP/UDP is only in use in an inter-network .... we can communicate with UDP or other packaging on a local area network. And in fact if we communicate purely on a local host 127 address or with direct link between only two devices, or for instance bluetooth or apple's tech, then we can use other packaging frameworks, for example between two devices we have FTP. 
+# Assuming processor sends relevant network instructions and packages the tcp/udp packaging, this is encapsulated within a broader IP packet (conforming to the relevant internet protocol assigned in the IP packet header- in this case 802.3x) and this is then further encapsulated within an even broader 802.3 ethernet frame covering the physical signals being sent to the devices network interface card to via data layer through an internetwork. 
+vice versa on the recieving end etc.. 
+1. TCP  doesn't have a max-size because it is not based on self-contained communication of packets but rather segments that are logical packed and sequenced within the IP-Payload/Ethernet-Frames. The key to TCP is instead to get a TCP handshake via the TCP header information allowing a persistent stream of data. 
+BUT  payload size IS limited by two packet related factors since this TCP-packaged data is still (1)logically(IP packet payload/level3) and (2)physically(ethernetframe payload(level4)) encapsulated into a IPpacket-ethernet frame. these are all the same physical  binary-based electric signals, just being represented at different organisation and logical levels. 
+This counts payload ONLY, not the combined TCP/IP header section which preceded the max-64kb payload. 
+This combined TCP/IP header section can contain a maximum of 60 bytes, usually 20 reserved for IP header, 20 for TCP header and 20 for filling/optional ip info. 
+ 
+the tCP header contains PORT information since TCP is the packaging of networked data for applications to successful navigate the shared network resources managed by a a device's processor, memory and network cards- ports being simply logical gateways to asssign processor/memory and network resources fgor particular programmes on a device. so TCP header starts with: source Port (6 bits), destination port(6 bits) followed by varied further relevant packagin info as well as a checksum to verify integrity of this seciton of the ethernetframe/ippacket upon arrival at destination. 
+ 
+ 
+2. UDP is an older packagign mechanism and is more straightforward since it deals with segmented communication of a maximum 65,507(on ipv4) or 65,527(on ipv6) payload BUT the logical (ip packet payload) and physical (ethernet frame payload) limits -dealt with below- still apply. On the other hand UDP has slightly more space that TCP on each transmission because it is loud and crude, it doesn't have a header of up to 60bytes, the UDP header is always 8 bytes and only has fundamental logical(ip/port)/physical(mac) addressing information... no packet loss or handshaking. 
+ 
+layer 3 network    - IP PACKET - logical addressing 
+-the ip packet header has 20bytes starting with version(usuall ipv4(4 bits), header length info (4bits), TOS (8bits) total lenght of ip packet , further info relating to the order of the data as it is to be recived, time to live (for dropping packets and making sure they are resent), protocol, then the logical address part - source ip, destination ip. and then followed by the tcp header 
+- the ip payload has a max size of 64kb ie. 65,535 bits BUT, just like UDP and TCP, this is actually LIMITED by the data-layer transmission packaging which ,despite all these newer formats/protocols is still (in the ethernet case) the funamental ethernet frame from the early 1960s: 
+ 
+layer 2 data       - Ethernet frame (MAC or physical addressing to find specific devices on each IP network) 
+ 
+- maximum size of each payload is 1.5kb. (MTU) 
+-max header for eth frame is 18 bytes with MAC addressing data and usual checksum 
+THUS regardles of use of TCP or UDP bundling of the app/programme's network-related data via a logical (ip packet) addressing format/protocol, all of this data at a level 1 physical layer (i.e. the 1 and 0 electric signals) are fragmented from the max size (theoretically infinite with TCP, 65kb with UDP) and bundled into each ethernet frame at 1500 bytes apiec (or smaller/larger in other networking protocoles liek 802.11 etc.) 
+# the internet protocol packet is the overall          data carrier. it contains a header with 
+    #       logical (ip) address for large network linking 
+    #       and thus sits at level 3 of the OSI model 
+    #       (network level). Within that packet we find 
+    #       information relevant to data level 4( 
+    #       transport) in the form of a TCP segment or a 
+    #       UDP datagram. Also encapsulated in the ip 
+    #       packet is the level 2(data) MAC-address based 
+    #       ethernet/wifi frame. 
+'''</span>
+<span class="s0"># /////////IMPORTS\\\\\\\\\\\\</span>
+<span class="s0"># import socket functions package for opening network socket</span>
+<span class="s3">import </span><span class="s1">socket</span>
+<span class="s0"># struct is a c-inherited class of inbuilt python functions for writing data to and from byte format and interpreting it. Commonly used in network frame transactions because the data needs to be packed into byte format and unpacked from byte format.</span>
+<span class="s3">import </span><span class="s1">struct</span>
+<span class="s0"># textwrap conditionally formats text according to the args passed to it as a function</span>
+<span class="s3">import </span><span class="s1">textwrap</span>
+
+<span class="s0"># /////////Compile\\\\\\\\\\\\</span>
+<span class="s0">#Constants declared related to formatting of the output of metadata and contentpayloads at the various OSI layer -related packages of data(ethernetFrame,IPPacket,TCP/UDP/other final packaging -explained further down).</span>
+<span class="s1">metaHeadTab1 = </span><span class="s4">'</span><span class="s3">\t </span><span class="s4">- '</span>
+<span class="s1">metaHeadTab2 = </span><span class="s4">'</span><span class="s3">\t\t </span><span class="s4">- '</span>
+<span class="s1">metaHeadTab3 = </span><span class="s4">'</span><span class="s3">\t\t\t </span><span class="s4">- '</span>
+<span class="s1">metaHeadTab4 = </span><span class="s4">'</span><span class="s3">\t\t\t\t </span><span class="s4">- '</span>
+<span class="s1">payloadTab1 = </span><span class="s4">'</span><span class="s3">\t </span><span class="s4">'</span>
+<span class="s1">payloadTab2 = </span><span class="s4">'</span><span class="s3">\t\t </span><span class="s4">'</span>
+<span class="s1">payloadTab3 = </span><span class="s4">'</span><span class="s3">\t\t\t </span><span class="s4">'</span>
+<span class="s1">payloadTab4 = </span><span class="s4">'</span><span class="s3">\t\t\t\t </span><span class="s4">'</span>
+
+<span class="s0"># /////////MAIN FUNCTION FIRST-ORDER COMPILATION TO PAVE THE WAY TO RUNTIME EXECUTION\\\\</span>
+<span class="s3">def </span><span class="s1">sniff():</span>
+    <span class="s0"># create an instance of the socket.socket class object:</span>
+    <span class="s0">#   a. Pass arg1 as the frame family (AF_PACKET - in        this case ethernet).</span>
+    <span class="s0">#   b. pass arg2 as the choice of data type (SOCKRAW)</span>
+    <span class="s0">#       - in this case raw</span>
+    <span class="s0">#       bytestrings.</span>
+    <span class="s0">#   c.  socket.nthos meth converts the network-side</span>
+    <span class="s0">#       bigEndian bytestring format to operating</span>
+    <span class="s0">#       system littleEndian bytestring form. the</span>
+    <span class="s0">#       decimal 3 passed into arg1 , which can be</span>
+    <span class="s0">#       written as a byte string of 0x0003 is simply a</span>
+    <span class="s0">#       directive telling the thread execution to</span>
+    <span class="s0">#       capture all incoming bigEndian bytestrings.</span>
+
+    <span class="s0"># NOTE, the ethernet frame is the larger RAW data</span>
+    <span class="s0"># AF_ adddress family packet sock.raw = raw bytestrings socket inflow</span>
+    <span class="s1">connection = socket.socket(socket.AF_PACKET</span><span class="s5">, </span><span class="s1">socket.SOCK_RAW</span><span class="s5">, </span><span class="s1">socket.nthos(</span><span class="s6">3</span><span class="s1">))</span>
+    <span class="s0"># while we have data incoming...</span>
+    <span class="s3">while True</span><span class="s1">:</span>
+        <span class="s0"># create  Link layer data var (remember that the ethernet frame is dealing with OSI layer 2- the data-link level) - we handle the incoming raw bytestream data and assign it to the 64kb data packet value (64kb is actually 65,535bytes) because this is the max size of any ip packet (64kb).</span>
+        <span class="s0"># address var to --not clear why we need an address var to also slurp up the incoming bytestream link-level data... it seems very ineficient to duplicate the data flowing in into two separate variables..???</span>
+        <span class="s0"># Also note that we are assigning this incoming value into BOTH rawdata and address variables...</span>
+        <span class="s1">linkDataIn</span><span class="s5">, </span><span class="s1">address = connection.recvfrom(</span><span class="s6">65535</span><span class="s1">)</span>
+        <span class="s0"># now we seaprate this linkdata stream into four variables BUT NOTE that each variable is NOT SIMPLY being assigned the incoming data value... the unpack ethernet_frame function is being called on the linkDataIn container variable... this means that we are formatting the data as it enters (with the ethernet frame header being the first bits of the  overall bytestream since the frame header is what encapsulates both the IP packet and the TCP segment as explained above).</span>
+        <span class="s0"># Once the relevant ethernet_frame-related bytestream values have been successfully isolated and assigned to the first three vars, then notice that the fourth and last variable absorbs the remaining bytestream of the raw incoming data, which is now relevant to the encapsulated two remaining data packages(the ip packet and the tcp segment in this case). that variable has been nicknamed the logicalData since these packages deal with logical data.</span>
+        <span class="s0"># note that we assign these ethernet-frame layer2(data link level) related metadata and contentPayload vars by calling the second-order compilation method unpack_ethernet_frame which has been defined below in the source code.</span>
+        <span class="s1">destination_MAC</span><span class="s5">, </span><span class="s1">source_MAC</span><span class="s5">, </span><span class="s1">ethernet_protocol</span><span class="s5">, </span><span class="s1">logicalDataIn = unpack_ethernet_frame(linkDataIn)</span>
+        <span class="s1">print(</span><span class="s4">'</span><span class="s3">\n</span><span class="s4">Ethernet Frame: '</span><span class="s1">)</span>
+        <span class="s1">print(metaHeadTab1 + </span><span class="s4">'Destination: {}, Source: {}, Protocol: {}'</span><span class="s1">.format(destination_MAC</span><span class="s5">, </span><span class="s1">source_MAC</span><span class="s5">, </span><span class="s1">ethernet_protocol))</span>
+        <span class="s0"># ETHERNET FRAME PROCESSINGbasic check to ensure that the ethernet_protocol signal in the ethernet frame header is indeed an 8, which is the signal for 802.3x ethernet protocol comms, in order to successfully run the unpacking of this programme</span>
+        <span class="s3">if </span><span class="s1">ethernet_protocol == </span><span class="s6">8</span><span class="s1">:</span>
+        <span class="s0"># IP PACKET PROCESSING - here we assign to the relevant IP PACKET metadata and logicaldata vars the unpacked (using the unpack_ipV4_packet second-order compilation method defined below) ethernetFrame data that has been unpacked just above.</span>
+            <span class="s1">(version</span><span class="s5">, </span><span class="s1">header_length</span><span class="s5">, </span><span class="s1">timeToLive</span><span class="s5">, </span><span class="s1">IPprotocol</span><span class="s5">, </span><span class="s1">IPsource</span><span class="s5">, </span><span class="s1">IPtarget) = unpack_ethernet_frame(logicalDataIn)</span>
+        <span class="s0"># now we deploy the relevant IPPacket-level metadata to the terminalconsol output to inform user of IPPacket-related metadat info at the first-level of encapsulation:</span>
+            <span class="s1">print(metaHeadTab1+</span><span class="s4">'IPv4Packet Metadata: '</span><span class="s1">)</span>
+            <span class="s1">print(metaHeadTab2+</span><span class="s4">'Version: {}, Header Length: {}, TimeToLive: {}'</span><span class="s1">.format(version</span><span class="s5">, </span><span class="s1">header_length</span><span class="s5">, </span><span class="s1">timeToLive))</span>
+            <span class="s1">print(metaHeadTab2+</span><span class="s4">'IP Protocol: {}, IP Source: {}, IP Destination: {}'</span><span class="s1">.format(IPprotocol</span><span class="s5">, </span><span class="s1">IPsource</span><span class="s5">, </span><span class="s1">IPtarget))</span>
+        <span class="s0"># FINAL SECOND-DEPTH ENCAPSULATION PROCESSING - based on a choice of which type of second-depth packaging is detected when reading the IPPacket header's IPprotocol variable, we now stream out the second-depth encapsulated metadata and the actual content payload to the terminal console for the user to read. The output will be formated by the bytestrings formatting second-order compilation function (at the bottom of this source code) so it will be put out to the console in a regular column format. But the content will still be in bytestrings, so perhaps a good project is to find a way to output those bytestrings as plaintext for readability?</span>
+        <span class="s0"># Decision point for choosing which IPpacket header Protocol signal is incoming and thereby allocating the correct second-order compilation function for unpacking the final second-depth encapsulated header/payload content.</span>
+            <span class="s3">if </span><span class="s1">IPprotocol == </span><span class="s6">1</span><span class="s1">:</span>
+        <span class="s0"># ICMP OPTION</span>
+                <span class="s1">icmp_flag</span><span class="s5">, </span><span class="s1">packagingCode</span><span class="s5">, </span><span class="s1">chkSum</span><span class="s5">, </span><span class="s1">logicalDataIn = unpackICMP(logicalDataIn)</span>
+                <span class="s1">print(metaHeadTab1 + </span><span class="s4">'ICMP Package Metadata: '</span><span class="s1">)</span>
+                <span class="s1">print(metaHeadTab2 + </span><span class="s4">'Icmp Flag: {}, packaging Code: {}, Check Sum: {}'</span><span class="s1">.format(icmp_flag</span><span class="s5">, </span><span class="s1">packagingCode</span><span class="s5">, </span><span class="s1">chkSum ))</span>
+                <span class="s1">print(metaHeadTab2 + </span><span class="s4">'ICMP Package Data: '</span><span class="s1">)</span>
+                <span class="s1">print(format_bytestrings(payloadTab3</span><span class="s5">, </span><span class="s1">logicalDataIn))</span>
+        <span class="s0"># TCP OPTION</span>
+            <span class="s3">elif </span><span class="s1">IPprotocol == </span><span class="s6">6</span><span class="s1">:</span>
+                <span class="s1">source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">sequenceNum</span><span class="s5">, </span><span class="s1">acknowledgeNum</span><span class="s5">, </span><span class="s1">offset_reserved_nFlags</span><span class="s5">,</span><span class="s1">flag_urgent</span><span class="s5">, </span><span class="s1">flag_ack</span><span class="s5">, </span><span class="s1">flag_push</span><span class="s5">, </span><span class="s1">flag_reset</span><span class="s5">, </span><span class="s1">flag_sync</span><span class="s5">, </span><span class="s1">flag_finish</span><span class="s5">, </span><span class="s1">logicalDataIn= unpackTCP(logicalDataIn)</span>
+                <span class="s1">print(metaHeadTab1 + </span><span class="s4">'TCP Segment Metadata: '</span><span class="s1">)</span>
+                <span class="s1">print(metaHeadTab2 + </span><span class="s4">'Source Port: {}, Destination Port: {}'</span><span class="s1">.format(source_port</span><span class="s5">, </span><span class="s1">destination_port))</span>
+                <span class="s1">print((metaHeadTab2 + </span><span class="s4">'Sequence Number: {}, Acknowledge Number: {}'</span><span class="s1">).format(sequenceNum</span><span class="s5">,</span><span class="s1">acknowledgeNum))</span>
+                <span class="s1">print(metaHeadTab2 + </span><span class="s4">'Flags: '</span><span class="s1">)</span>
+                <span class="s1">print(metaHeadTab3 + </span><span class="s4">'URG: {}, ACK: {}, PSH: {}, RST: {}, SYN: {}, FIN: {}'</span><span class="s1">.format(flag_urgent</span><span class="s5">, </span><span class="s1">flag_ack</span><span class="s5">, </span><span class="s1">flag_push</span><span class="s5">, </span><span class="s1">flag_reset</span><span class="s5">, </span><span class="s1">flag_sync</span><span class="s5">, </span><span class="s1">flag_finish))</span>
+                <span class="s1">print(format_bytestrings(payloadTab4</span><span class="s5">, </span><span class="s1">logicalDataIn))</span>
+        <span class="s0"># UDP OPTION</span>
+            <span class="s3">elif </span><span class="s1">IPprotocol == </span><span class="s6">17</span><span class="s1">:</span>
+                <span class="s1">source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">size</span><span class="s5">, </span><span class="s1">logicalDataIn = unpackUDP(logicalDataIn)</span>
+                <span class="s1">print(metaHeadTab1 + </span><span class="s4">'UDP Datagram Metadata'</span><span class="s1">)</span>
+                <span class="s1">print(metaHeadTab2 + </span><span class="s4">'Source Port: {}, Destination Port: {}, Size: {}'</span><span class="s1">.format(source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">size))</span>
+                <span class="s1">print(format_bytestrings(payloadTab3</span><span class="s5">, </span><span class="s1">logicalDataIn))</span>
+        <span class="s0"># ANY OTHER OPTION</span>
+            <span class="s3">else</span><span class="s1">:</span>
+                <span class="s1">print(metaHeadTab1 + </span><span class="s4">'Data: '</span><span class="s1">)</span>
+                <span class="s1">print(format_bytestrings(payloadTab2</span><span class="s5">, </span><span class="s1">logicalDataIn))</span>
+
+<span class="s0"># SECOND ORDER COMPILATION</span>
+<span class="s0"># /////////LAYER 2 DATA-LINK LEVEL RELATED FIRST-ORDER COMPILATION\\\\</span>
+<span class="s0"># Here is the aforementioned ethernetExtractor method which takes in the link-level data as arg1</span>
+<span class="s3">def </span><span class="s1">unpack_ethernet_frame(linkDataIn):</span>
+    <span class="s0"># we assign these three vars whatever data is being unpacked from the ethernet frames that are being vacuumed up.</span>
+    <span class="s0"># note that arg1 of the unpack(meth) has ! which tells the compiler to absorb the bigEndian bytestrings that are flowing into our network interface card (since networking bytestring formats use the bigEndian storage system) into the littleEndian storage system, more appropriate for PCs.</span>
+    <span class="s0"># arg1 will need the number and type of data inputs that the compiler is to expect. in this case, the destination mac will take up 6 bytes(6s), same for source MAC and H refers to a small unsigned(positive num only) int</span>
+    <span class="s0"># arg2 takes in the network data inflow to be picked up from the frame BUT it passes data with an array that takes only the first 14 bytes from the frame. The first 8 bytes of the frame consist of binary packed information. The following 14 bytes consist of 6bytes for destination MAC address, 6 for source Mac and 2 for header protocol (http/s, tls etc)</span>
+    <span class="s0"># So by adding an array that specifies we want the first 14 bytes from the raw data (discounting the raw binary which is skipped over by the unpacker) we are basically extracting from the data frame the packet/frame header METADATA</span>
+    <span class="s1">destination_MAC</span><span class="s5">, </span><span class="s1">source_MAC</span><span class="s5">, </span><span class="s1">ethernet_protocol = struct.unpack(</span><span class="s4">'! 6s 6s H'</span><span class="s5">, </span><span class="s1">linkDataIn[:</span><span class="s6">14</span><span class="s1">])</span>
+    <span class="s0"># these custom functions prefacing the returned vars are defined below and their purpose is to convert the raw bytestring data into standardised versions, like a normal hex MAC address for example.</span>
+    <span class="s0"># socket.htons is an inbuilt meth that makes the bigEndian bytestring human readable.</span>
+    <span class="s0"># NOTE that final return statement, returning the remaining payload of the frame after the 14th byte [:14]... since we don't know the exact size of the contained data so we cannot specifically unpack it. We can only grab it wholesale.</span>
+    <span class="s3">return </span><span class="s1">format_MAC(destination_MAC)</span><span class="s5">, </span><span class="s1">format_MAC(source_MAC)</span><span class="s5">, </span><span class="s1">socket.htons(ethernet_protocol)</span><span class="s5">, </span><span class="s1">linkDataIn[</span><span class="s6">14</span><span class="s1">:]</span>
+<span class="s0"># note that these correctly formatted vars are now returned to main memory, ready for use in the main sniff() function defd'd above here but runtim'd below.</span>
+<span class="s0"># now we define the format_MAC funct which is called by the above unpack_ethernet_frame function in order to note only extract the MAC source and destination addresses but also to output them in a standard MAC format</span>
+<span class="s3">def </span><span class="s1">format_MAC(bytes_format_in):</span>
+    <span class="s0"># use the map() which iterates through a set of iterables passed in arg3 and undertakes whatever the arg1 callback function tells it to do. So use the format() function in arg1 prefaced with the regexp of the typical mac address formatting in order to take the raw bytestrings and turn it into MAC style but still unjoined and not in uppercases for the alphabetic chars.</span>
+    <span class="s1">bytes_string = map(</span><span class="s4">'{:02x}'</span><span class="s1">.format()</span><span class="s5">, </span><span class="s1">bytes_format_in)</span>
+    <span class="s0"># this next variable now holds the fully formated MAC address. This is achieved by joining all of the mapped out bytes_string using the join() meth on each of the incoming (now hexadecimmally formatted) bytestring but also  concatanating the toUpper method (upper in py) and attaching a : for every MAC address element (which has been determined previously as being each of the first two hexadecimal units being cut up in the first operation of this function).</span>
+    <span class="s1">mac_formatted = </span><span class="s4">':'</span><span class="s1">.join(bytes_string).upper()</span>
+    <span class="s3">return </span><span class="s1">mac_formatted</span>
+
+    <span class="s0"># /////////LAYER 3 NETWORK LEVEL RELATED FIRST-ORDER COMPILATION\\\\</span>
+<span class="s0"># function to unpack the ip address from the ip packet header</span>
+<span class="s0"># NOTE that this function is instead dealing with the level3 IP PACKET, not just the MAC-related level2 ethernetframe which is physically (binary-wise) encapsulated in the IP packet anyway.</span>
+
+<span class="s0"># format ipV4 addressing:</span>
+    <span class="s3">def </span><span class="s1">format_ipv4(ipV4address):</span>
+        <span class="s3">return </span><span class="s4">'.'</span><span class="s1">.join(map(str</span><span class="s5">, </span><span class="s1">ipV4address))</span>
+
+    <span class="s3">def </span><span class="s1">unpack_ipv4_packet(logicalDataIn):</span>
+    <span class="s0"># get info about version &amp; header length sections of the IP packet.</span>
+    <span class="s0"># The IP packet has different sections and one of those sections is the header.</span>
+    <span class="s0"># the IP header has several sections and can actually vary in length.</span>
+    <span class="s0"># the first section of the ip header part of the IP Packet is the version ... usually IpV4- this is communicated by having a decimal value of 4 in this section to denote IP version 4 (100 in bits)</span>
+    <span class="s0"># the next section is the ip header length denotation, telling us the length of this ip header seciton of the ip packet. The length is flagged by a decimal number (passed as binary of course) which acts as a placeholder flag for the multiples of (the numer of) 32 bit spaces that are contained in the header (the header's size is calculated by this convention in multiples of 32 bit spaces). So a decimal 5(101) will represent 5*32 bits of space... which is 160 which is 20 bytes(160/8 =20).</span>
+    <span class="s0"># the minimum length of an ip header is actuall that: 20bytes (8bits is a byte so, in the header lenght section this is denoted as a decimal 5 (101). The maximum lenght of the header is 15 in decimal(1111)  which calculates to 60bytes or 480/8 or 32bytes*15.</span>
+    <span class="s0"># there are many other sections, relating to checksum and ip etc. but for the packet sniffer here is what matters in this function, extracting the ip addressing (logical addressing) from the header.</span>
+    <span class="s0"># The version_header_length variable is initialised and is defined as being the first bit(0) of the data stream of the packet header coming in.</span>
+    <span class="s0"># remember that these are coming in as 1s and 0s  into the ingress point (the network interface card , presumably after the router has successfully determined the MAC-related information held within the pack in the etherenet frame's data in order to send to the relevant client/host on the designated ip network?)</span>
+        <span class="s1">version_header_length = logicalDataIn[</span><span class="s6">0</span><span class="s1">]</span>
+    <span class="s0"># Now by using a simple bitwise arithmetic operation, we can shift the bits coming in by 4 bits to the right, meaning that the initial 1s and 0s relating to the first four bits that relate to the first section of the header (dealing with the ip version which is not important to our purposes) can be 'extracted off the table' so to speak.</span>
+    <span class="s0"># NOTE that bitwise arithmetic is NOT like decimal arithmetic. Neither addition/substraction nor shifting makes the same difference to the sum/product of the operation. Instead, it has a more 'presentaitonal' impact. For instance bitwise addition actually doesn't sum the total of the two or more added bit sequences, but rather 'cancels out' all of the 'uncertain' bit states and produces an outcome of 'certain' bits i.e. only bit states that have a 1. Example:</span>
+    <span class="s0"># a 110101011 +</span>
+    <span class="s0"># b 010101010  in bit = would be:</span>
+    <span class="s0"># c 010101010  NOTE only the 1s existing in both a and b make it into c... the decimal values of these bit sequences would add up to a totally different number than that of the decimal value of c - its more about logical order than functional product....</span>
+    <span class="s0"># likewise with a bit shift to the right:</span>
+    <span class="s0"># a = 0101 0011</span>
+    <span class="s0"># b = a &gt;&gt; 4  (bitshifted 4 to the right means:</span>
+    <span class="s0"># b = 0011    .... 0101 has been &quot;wiped off&quot; the bitstream 'production line'</span>
+    <span class="s0"># so the trick here is that we bit shift the container var of the entire ip-packet header by  4 to exract the first 4 ingressing bit values which are representing the first section of the ip version flag which we assign to a variable</span>
+        <span class="s1">version = version_header_length &gt;&gt; </span><span class="s6">4</span>
+    <span class="s0"># now, assuming although we have isolated the version element of the ip packet header, the adjoined element of header lenght is still not isolated.</span>
+    <span class="s0"># To do this he uses another trick. He takes the full section (version as well as header length) as it has been ingressed from the zero-base (initial bit) incoming via the packet. BUT, he uses a bitwise AND operation. Remember that this doesn't produce the same arithmetic function, but rather 'overlays' the bits of each bit sequence and only 'returns' those 'hits' where both sequences have a 1.</span>
+    <span class="s0"># so for example, the full version and header length section is two bytes of</span>
+    <span class="s0">#              1010  1101  &lt;---bitstream incoming</span>
+    <span class="s0">#first bit here^     ^^^</span>
+                       <span class="s0">#versn length</span>
+    <span class="s0"># 15 in bits of the same bit entities length is:</span>
+    <span class="s0"># 0000 1111</span>
+    <span class="s0"># adding them:  10101101 &amp;</span>
+                <span class="s0">#   00001111  = 00001101 = 14 in decimal</span>
+    <span class="s0"># remember that convention stores the length of a ip packet header in 32 bit units. 8 bits is one byte. 8*4 = 32 bytes. So by multiplying the 14 decimal value by 4 we are getting the total number of bits that are assigned as the header length, because the 14 value represents the decimal number of bits  being deployed as a marker/flag of multiples of 32bit units that the header's true size is. By multiplying that flag/placeholder by 4 we are saying: give me how many of the 32 bit units are being placeheld/represented by the binary flag in this header-length space(in our example that's 1101(14).</span>
+        <span class="s1">header_length = (version_header_length &amp; </span><span class="s6">15</span><span class="s1">) * </span><span class="s6">4</span>
+    <span class="s0"># in our exmaple the header lenght will be 14*4 = 64bits of header length (aside from the 4 bits for the verison which was already extracted).</span>
+    <span class="s0"># Now that we have all the header worked out, we can start unpacking all of the header data that is relevant for our purposes. in particular the time to live, protocol, source and target. To isolate these, we use a struct.unpack again with bit-relevant notations)</span>
+        <span class="s1">timeToLive</span><span class="s5">, </span><span class="s1">IPprotocol</span><span class="s5">, </span><span class="s1">IPsource</span><span class="s5">, </span><span class="s1">IPtarget = struct.unpack(</span><span class="s4">'! 8x B B 2x 4s 4s'</span><span class="s5">, </span><span class="s1">logicalDataIn[:</span><span class="s6">20</span><span class="s1">]) </span><span class="s0"># note arg2 is data to be unpacked into these vars, in this case, all data ingressing from the first bit for the next 20 bytes (20bytes being the full lenght of the non-optional ip packet header- and any variable part of the header lenght being due to optional/padding).</span>
+    <span class="s0"># NOTE that the point of calculating the header lenght is that these can vary, meaning we are not sure of where the header stops and the ip packet payload(content) begins. So we need a grasp of the header length before then extracting the payload (content) - our juicy target.</span>
+        <span class="s3">return </span><span class="s1">version</span><span class="s5">, </span><span class="s1">header_length</span><span class="s5">, </span><span class="s1">timeToLive</span><span class="s5">, </span><span class="s1">IPprotocol</span><span class="s5">, </span><span class="s1">IPsource</span><span class="s5">, </span><span class="s1">IPtarget</span><span class="s5">, </span><span class="s1">format_ipv4(IPsource)</span><span class="s5">, </span><span class="s1">format_ipv4(IPtarget)</span><span class="s5">, </span><span class="s1">logicalDataIn[header_length:]</span>
+
+    <span class="s0"># MULTIPLE UNPACKS ON THE IPPAYLOAD SECTIONS DEPENDING OF THE SECOND-ORDER ENCAPSULATIONS (i.e. TCP SEGMENT, ICMP MESSAGE, UDP DATAGRAM) Note that arg1 of these is nicknamed logical payload in order to distinguish it from the ethernet_frame unpacker's link-level data (this is just to distinguish it clearly for our use... the data is all the same physical electric signals communicated in binary- although one difference is that now, we have extracted the first parts of that physical raw binary data into the ethernet frame header as well as isolating and extracting the ipPacket header in the past two functions... so now we deal with whatever is further encapsulated at a second-depth encapsulation.</span>
+    <span class="s0"># The way we let the programme know which of the following second-order compilation functions to run so as to correctly unpack at a second-depth of encapsulation the final set of headers and actual content data we want to capure is by using the IP Packet header's IPProtocol variable - which we isolated and extract(returned to main memory) in the previous function relating to unpacking the IPPacket. The IP Protocol variable which will hold the data relevant to the protocol field of the IP Packet header, has a binary written code which, in decimals correlates to the relevant type of second-depth encapsulation format.</span>
+    <span class="s0"># For ICMP (internet control message protocol), the code is 1.</span>
+    <span class="s0">#for  UDP it's 17. For TCP  it's 6 etc... the relvant code being passed in the first-order main compilation function at the top of this source code will determing which of these second-order compilation functions will be chosen by the programme. And the programme will know which number to pass to that first order main compilation function because the physical data coming in and extracted as the IPProtocal var via the preceding IPPacket unpacking function will tell it what type of protocol the raw data is being sent under. Reading that IPProtocol var's value will allow the right choice as to which of the following second-order compilation functions to run relating to the second-depth encapsulation unpacking that we finally need to do to get to the final header and separate that from the actual content data being sniffed (and thus having separated all of the metadate from that content data of the raw binary data that has been sent through the network card).</span>
+
+    <span class="s0"># OPTION 1 ICMP type payloads (internet control messaging protocol - used for diagnosis).</span>
+    <span class="s0"># only a 4 byte header so relatively simple to set the header-related container vars with bitwise-notation assigning them then followed by the content payload, signalled by a 4byte starting array position marker.</span>
+<span class="s3">def </span><span class="s1">unpackICMP(logicalDataIn):</span>
+    <span class="s1">icmp_flag</span><span class="s5">, </span><span class="s1">packagingCode</span><span class="s5">, </span><span class="s1">chkSum = struct.unpack(</span><span class="s4">'! B B H'</span><span class="s5">, </span><span class="s1">logicalDataIn[</span><span class="s6">4</span><span class="s1">:])</span>
+    <span class="s0"># OPTION 2 TCP type payloads</span>
+    <span class="s0"># in this case we take the level3 logicalpayload aspect of the level2 raw etherenet frame bitstream and we separate it from the TCP segment header. Most the lines in this function deal with sub-segmenting that TCP segment header into its various container vars for each sub-segment and the final line assigns the remaining bits beyond the calculated TCP segment header length to be the logicalPayload (i.e. after two orders of encapsulation, we have the actual content data being sent - aside from ethFrame, IpPackt and TCPSgmnt metadata)</span>
+    <span class="s0"># regarding the TCP header subssegment we see that this includes the source and destination ports for the OS application to undertake whatever networking activity it is asking the device to do and several TCP-specific header fields all of which are allocated into the container vars. the TCP header is always 14 bytes long, so we see that on first assignment, we set the bitwise notation and the content-related IP Packet (post IPpacket Header extraction) logicalPayload data incoming upond call of the unpackTCP method.</span>
+<span class="s3">def </span><span class="s1">unpackTCP(logicalDataIn):</span>
+    <span class="s1">(source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">sequenceNum</span><span class="s5">, </span><span class="s1">acknowledgeNum</span><span class="s5">, </span><span class="s1">offset_reserved_nFlags) = struct.unpack(</span><span class="s4">'! H H L L H'</span><span class="s5">, </span><span class="s1">logicalDataIn[:</span><span class="s6">14</span><span class="s1">])</span>
+        <span class="s0"># the purpose of this bitwise offset is similar to that used previously with the ethernetFrameHeader. This separate action is necessaryu because the offset_reserved and Flags sub-segments within the TCP header are actually sent as one 16 bit sub-segment. So unlike the other header sub-segment, we will need to have a further separation process of this offset/reserved/flags sub-segment group. So here we are doing the old trick: we know the first of the sub-segments in this group, the offset sub-segment, is 4 bits long. So we bitshift the 16-bit group of data as it is being read into main memory by &gt;&gt;12 bits thus isolating and extracting the first 4 bits that arrived - which we assign to the offsetSubSeg variable. NOTE that this variable now is not only isolated but also contains a bit-equivalent value for the decimal value of the length of the TCP header. So by isolating it, we now have a value for the TCP header's entire length, which we will use at the end of this function to demarcate where the header ends, and the content data TCP payload is to begin (to be isolated and extracted)</span>
+    <span class="s1">offsetSubSeg = (offset_reserved_nFlags &gt;&gt; </span><span class="s6">12</span><span class="s1">) * </span><span class="s6">4</span>
+        <span class="s0"># the flags relate to notation used for first comms of the TCP headers with recieving server/host and for routers. Thes flags, like the famous SYN-ACK-SYN TCP handshake are all contained in the header.</span>
+        <span class="s0"># it seems here that he is using bitwise arithmetic (bitwise addition) to create a 'bit mask' that overlays whatever the value of the flags (if they have a value) and then do the bitshift trick on each of them as was just done on the offset in order to isolate and extract.</span>
+        <span class="s0"># the reason we need the bitmask here is because these flags may have no value or a value in order to signal them but they are incoming as raw bit data in a particular order. So as per the binary order of ^2s for every binary unit, we are masking the relevant bits over the relevant bit unit position (it seems).</span>
+        <span class="s0"># eg:</span>
+        <span class="s0">#              bit ^2 unit position (bitmask basis)</span>
+        <span class="s0">#                32 16 8 4 2 1</span>
+        <span class="s0"># offst|| rsrvd||flagsSubSeg</span>
+        <span class="s0">#  0101||001000|| 0  1 0 1 0 1 &lt;------bits incomin</span>
+    <span class="s1">flag_urgent = (offset_reserved_nFlags &amp; </span><span class="s6">32</span><span class="s1">) &gt;&gt; </span><span class="s6">5</span>
+    <span class="s1">flag_ack = (offset_reserved_nFlags &amp; </span><span class="s6">16</span><span class="s1">) &gt;&gt; </span><span class="s6">4</span>
+    <span class="s1">flag_push = (offset_reserved_nFlags &amp; </span><span class="s6">8</span><span class="s1">) &gt;&gt; </span><span class="s6">3</span>
+    <span class="s1">flag_reset = (offset_reserved_nFlags &amp; </span><span class="s6">4</span><span class="s1">) &gt;&gt; </span><span class="s6">2</span>
+    <span class="s1">flag_sync = (offset_reserved_nFlags &amp; </span><span class="s6">2</span><span class="s1">) &gt;&gt; </span><span class="s6">1</span>
+    <span class="s1">flag_finish = offset_reserved_nFlags &amp; </span><span class="s6">1</span>
+        <span class="s0"># note that there are several further TCP header sub-segments like the checksum... but we don't care about them for our purposes, we have already isolated and extract the header lenght(data offset subsegment var) so as to demarcate the conteent payload</span>
+    <span class="s3">return </span><span class="s1">source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">sequenceNum</span><span class="s5">, </span><span class="s1">acknowledgeNum</span><span class="s5">, </span><span class="s1">flag_finish</span><span class="s5">, </span><span class="s1">flag_sync</span><span class="s5">, </span><span class="s1">flag_reset</span><span class="s5">,</span><span class="s1">flag_push</span><span class="s5">, </span><span class="s1">flag_urgent</span><span class="s5">, </span><span class="s1">flag_ack</span><span class="s5">, </span><span class="s1">logicalDataIn[offsetSubSeg:]</span>
+    <span class="s0"># note as mentioned previously that the offsetSubSegment allows us to demarcate start of TCP content payload.</span>
+
+    <span class="s0"># OPTION 3  UDP type payloads</span>
+    <span class="s0"># unpack the UDP datagram header and separate from payload. This is relatively easy because UDP datagrams always have an 8 byte header followed by the up to 64kb payload (65535bits). So we use struct.unpack and assigning the bit-relevant notations we first fill the header as being the first 8 bytes of the logicalPayload being shipped in via the layer2-link-data ethernet frame bytestreams. then, whatever comes after byte number 8 is our payload</span>
+<span class="s3">def </span><span class="s1">unpackUDP(logicalDataIn):</span>
+    <span class="s1">source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">size = struct.unpack(</span><span class="s4">'! H H 2x H'</span><span class="s5">, </span><span class="s1">logicalDataIn[:</span><span class="s6">8</span><span class="s1">])</span>
+    <span class="s3">return </span><span class="s1">source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">size</span><span class="s5">, </span><span class="s1">logicalDataIn[</span><span class="s6">8</span><span class="s1">:]</span>
+
+<span class="s0"># format incoming bytestream into regular newlines for readability on the terminal console:</span>
+<span class="s3">def </span><span class="s1">format_bytestrings(prefix</span><span class="s5">, </span><span class="s1">bytestring</span><span class="s5">, </span><span class="s1">size=</span><span class="s6">80</span><span class="s1">):</span>
+        <span class="s0"># in the call we have two unset vars, one for the prefix of the</span>
+    <span class="s1">size = len(prefix)</span>
+        <span class="s0"># if the bystestrings variable filled in within the context of the main (first order compilation) function at the top of source code is made up of bytes then...</span>
+    <span class="s3">if </span><span class="s1">isinstance(bytestring</span><span class="s5">, </span><span class="s1">bytes):</span>
+            <span class="s0"># join the bytes under the give bitwise ntation formatting for every byte encountered in the bystring stream contained in the relevant var that is being passed into this format_bytestrings function</span>
+        <span class="s1">bytestring = </span><span class="s4">''</span><span class="s1">.join(</span><span class="s4">r'\x{:02x}'</span><span class="s1">.format(byte) </span><span class="s3">for </span><span class="s1">byte </span><span class="s3">in </span><span class="s1">bytestring)</span>
+    <span class="s3">if </span><span class="s1">size % </span><span class="s6">2</span><span class="s1">:</span>
+        <span class="s1">size = </span><span class="s6">1</span>
+        <span class="s0"># put together the prefix with the bystring but with a newline character setting them apart for clarity and also wrap the content var bytsring stream that was formatted above into a wrap() method subjected set of rows of text, with the size variable determining the character width number at which the softwrap forces the text into a new line.</span>
+    <span class="s3">return </span><span class="s4">'</span><span class="s3">\n</span><span class="s4">'</span><span class="s1">.join([prefix + line </span><span class="s3">for </span><span class="s1">line </span><span class="s3">in </span><span class="s1">textwrap.wrap(bytestring</span><span class="s5">, </span><span class="s1">size)])</span>
+<span class="s0"># /////////RUNTIME CALL\\\\\\\\\\\\</span>
+<span class="s1">sniff()</span>
+
+
+
+
+<span class="s0"># ++++++++++++++++++++++ANNEX : PROGRAMME IN FULL++++++++++++++++</span>
+<span class="s0"># IMPORTS</span>
+<span class="s3">import </span><span class="s1">socket</span>
+<span class="s3">import </span><span class="s1">struct</span>
+<span class="s3">import </span><span class="s1">textwrap</span>
+
+                        <span class="s0">#////// COMPILATION\\\\\\\</span>
+<span class="s0"># Tabs for bytestrings/metadata presentation on output of programme to terminal console (readability)</span>
+<span class="s1">metaHeadTab1 = </span><span class="s4">'</span><span class="s3">\t </span><span class="s4">- '</span>
+<span class="s1">metaHeadTab2 = </span><span class="s4">'</span><span class="s3">\t\t </span><span class="s4">- '</span>
+<span class="s1">metaHeadTab3 = </span><span class="s4">'</span><span class="s3">\t\t\t </span><span class="s4">- '</span>
+<span class="s1">metaHeadTab4 = </span><span class="s4">'</span><span class="s3">\t\t\t\t </span><span class="s4">- '</span>
+<span class="s1">payloadTab1 = </span><span class="s4">'</span><span class="s3">\t </span><span class="s4">'</span>
+<span class="s1">payloadTab2 = </span><span class="s4">'</span><span class="s3">\t\t </span><span class="s4">'</span>
+<span class="s1">payloadTab3 = </span><span class="s4">'</span><span class="s3">\t\t\t </span><span class="s4">'</span>
+<span class="s1">payloadTab4 = </span><span class="s4">'</span><span class="s3">\t\t\t\t </span><span class="s4">'</span>
+
+<span class="s0"># FIRST ORDER MAIN FUNCTION COMPILATION</span>
+<span class="s3">def </span><span class="s1">sniff():</span>
+    <span class="s1">connection = socket.socket(socket.AF_PACKET</span><span class="s5">, </span><span class="s1">socket.SOCK_RAW</span><span class="s5">, </span><span class="s1">socket.nthos(</span><span class="s6">3</span><span class="s1">))</span>
+    <span class="s3">while True</span><span class="s1">:</span>
+        <span class="s1">linkDataIn</span><span class="s5">, </span><span class="s1">address = connection.recvfrom(</span><span class="s6">65535</span><span class="s1">)</span>
+        <span class="s1">destination_MAC</span><span class="s5">, </span><span class="s1">source_MAC</span><span class="s5">, </span><span class="s1">ethernet_protocol</span><span class="s5">, </span><span class="s1">logicalDataIn = unpack_ethernet_frame(linkDataIn)</span>
+        <span class="s1">print(</span><span class="s4">'</span><span class="s3">\n</span><span class="s4">Ethernet Frame: '</span><span class="s1">)</span>
+        <span class="s1">print(metaHeadTab1 + </span><span class="s4">'Destination: {}, Source: {}, Protocol: {}'</span><span class="s1">.format(destination_MAC</span><span class="s5">, </span><span class="s1">source_MAC</span><span class="s5">, </span><span class="s1">ethernet_protocol))</span>
+        <span class="s3">if </span><span class="s1">ethernet_protocol == </span><span class="s6">8</span><span class="s1">:</span>
+            <span class="s1">(version</span><span class="s5">, </span><span class="s1">header_length</span><span class="s5">, </span><span class="s1">timeToLive</span><span class="s5">, </span><span class="s1">IPprotocol</span><span class="s5">, </span><span class="s1">IPsource</span><span class="s5">, </span><span class="s1">IPtarget) = unpack_ethernet_frame(logicalDataIn)</span>
+            <span class="s1">print(metaHeadTab1 + </span><span class="s4">'IPv4Packet Metadata: '</span><span class="s1">)</span>
+            <span class="s1">print(metaHeadTab2 + </span><span class="s4">'Version: {}, Header Length: {}, TimeToLive: {}'</span><span class="s1">.format(version</span><span class="s5">, </span><span class="s1">header_length</span><span class="s5">, </span><span class="s1">timeToLive))</span>
+            <span class="s1">print(metaHeadTab2 + </span><span class="s4">'IP Protocol: {}, IP Source: {}, IP Destination: {}'</span><span class="s1">.format(IPprotocol</span><span class="s5">, </span><span class="s1">IPsource</span><span class="s5">, </span><span class="s1">IPtarget))</span>
+            <span class="s3">if </span><span class="s1">IPprotocol == </span><span class="s6">1</span><span class="s1">:</span>
+                <span class="s1">icmp_flag</span><span class="s5">, </span><span class="s1">packagingCode</span><span class="s5">, </span><span class="s1">chkSum</span><span class="s5">, </span><span class="s1">logicalDataIn = unpackICMP(logicalDataIn)</span>
+                <span class="s1">print(metaHeadTab1 + </span><span class="s4">'ICMP Package Metadata: '</span><span class="s1">)</span>
+                <span class="s1">print(metaHeadTab2 + </span><span class="s4">'Icmp Flag: {}, packaging Code: {}, Check Sum: {}'</span><span class="s1">.format(icmp_flag</span><span class="s5">, </span><span class="s1">packagingCode</span><span class="s5">, </span><span class="s1">chkSum))</span>
+                <span class="s1">print(metaHeadTab2 + </span><span class="s4">'ICMP Package Data: '</span><span class="s1">)</span>
+                <span class="s1">print(format_bytestrings(payloadTab3</span><span class="s5">, </span><span class="s1">logicalDataIn))</span>
+            <span class="s3">elif </span><span class="s1">IPprotocol == </span><span class="s6">6</span><span class="s1">:</span>
+                <span class="s1">source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">sequenceNum</span><span class="s5">, </span><span class="s1">acknowledgeNum</span><span class="s5">, </span><span class="s1">offset_reserved_nFlags</span><span class="s5">, </span><span class="s1">flag_urgent</span><span class="s5">, </span><span class="s1">flag_ack</span><span class="s5">, </span><span class="s1">flag_push</span><span class="s5">, </span><span class="s1">flag_reset</span><span class="s5">, </span><span class="s1">flag_sync</span><span class="s5">, </span><span class="s1">flag_finish</span><span class="s5">, </span><span class="s1">logicalDataIn= unpackTCP(logicalDataIn)</span>
+                <span class="s1">print(metaHeadTab1 + </span><span class="s4">'TCP Segment Metadata: '</span><span class="s1">)</span>
+                <span class="s1">print(metaHeadTab2 + </span><span class="s4">'Source Port: {}, Destination Port: {}'</span><span class="s1">.format(source_port</span><span class="s5">, </span><span class="s1">destination_port))</span>
+                <span class="s1">print((metaHeadTab2 + </span><span class="s4">'Sequence Number: {}, Acknowledge Number: {}'</span><span class="s1">).format(sequenceNum</span><span class="s5">,</span><span class="s1">acknowledgeNum))</span>
+                <span class="s1">print(metaHeadTab2 + </span><span class="s4">'Flags: '</span><span class="s1">)</span>
+                <span class="s1">print(metaHeadTab3 + </span><span class="s4">'URG: {}, ACK: {}, PSH: {}, RST: {}, SYN: {}, FIN: {}'</span><span class="s1">.format(flag_urgent</span><span class="s5">, </span><span class="s1">flag_ack</span><span class="s5">, </span><span class="s1">flag_push</span><span class="s5">, </span><span class="s1">flag_reset</span><span class="s5">, </span><span class="s1">flag_sync</span><span class="s5">, </span><span class="s1">flag_finish))</span>
+                <span class="s1">print(format_bytestrings(payloadTab4</span><span class="s5">, </span><span class="s1">logicalDataIn))</span>
+            <span class="s3">elif </span><span class="s1">IPprotocol == </span><span class="s6">17</span><span class="s1">:</span>
+                <span class="s1">source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">size</span><span class="s5">, </span><span class="s1">logicalDataIn = unpackUDP(logicalDataIn)</span>
+                <span class="s1">print(metaHeadTab1 + </span><span class="s4">'UDP Datagram Metadata'</span><span class="s1">)</span>
+                <span class="s1">print(metaHeadTab2 + </span><span class="s4">'Source Port: {}, Destination Port: {}, Size: {}'</span><span class="s1">.format(source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">size))</span>
+                <span class="s1">print(format_bytestrings(payloadTab3</span><span class="s5">, </span><span class="s1">logicalDataIn))</span>
+            <span class="s3">else</span><span class="s1">:</span>
+                <span class="s1">print(metaHeadTab1 + </span><span class="s4">'Data: '</span><span class="s1">)</span>
+                <span class="s1">print(format_bytestrings(payloadTab2</span><span class="s5">, </span><span class="s1">logicalDataIn))</span>
+
+<span class="s0"># SECOND ORDER SECNDARY FUNCTS COMPILATION</span>
+    <span class="s0">#LAYER2 ETHERNET FRAME UNPACK</span>
+<span class="s3">def </span><span class="s1">unpack_ethernet_frame(linkDataIn):</span>
+    <span class="s1">destination_MAC</span><span class="s5">, </span><span class="s1">source_MAC</span><span class="s5">, </span><span class="s1">ethernet_protocol = struct.unpack(</span><span class="s4">'! 6s 6s H'</span><span class="s5">, </span><span class="s1">linkDataIn[:</span><span class="s6">14</span><span class="s1">])</span>
+    <span class="s3">return </span><span class="s1">format_MAC(destination_MAC)</span><span class="s5">, </span><span class="s1">format_MAC(source_MAC)</span><span class="s5">, </span><span class="s1">socket.htons(ethernet_protocol)</span><span class="s5">, </span><span class="s1">linkDataIn[</span><span class="s6">14</span><span class="s1">:]</span>
+    <span class="s0">#FORMAT THE MAC ADDRESS</span>
+<span class="s3">def </span><span class="s1">format_MAC(bytes_format_in):</span>
+    <span class="s1">bytes_string = map(</span><span class="s4">'{:02x}'</span><span class="s1">.format()</span><span class="s5">, </span><span class="s1">bytes_format_in)</span>
+    <span class="s1">mac_formatted = </span><span class="s4">':'</span><span class="s1">.join(bytes_string).upper()</span>
+    <span class="s3">return </span><span class="s1">mac_formatted</span>
+    <span class="s0"># FORMAT IPv4 ADDRESS</span>
+<span class="s3">def </span><span class="s1">format_ipv4(ipV4address):</span>
+    <span class="s3">return </span><span class="s4">'.'</span><span class="s1">.join(map(str</span><span class="s5">, </span><span class="s1">ipV4address))</span>
+    <span class="s0">#LAYER3 IP PACKET UNPACK</span>
+<span class="s3">def </span><span class="s1">unpack_ipv4_packet(logicalDataIn):</span>
+    <span class="s1">version_header_length = logicalDataIn[</span><span class="s6">0</span><span class="s1">]</span>
+    <span class="s1">version = version_header_length &gt;&gt; </span><span class="s6">4</span>
+    <span class="s1">header_length = (version_header_length &amp; </span><span class="s6">15</span><span class="s1">) * </span><span class="s6">4</span>
+    <span class="s1">timeToLive</span><span class="s5">, </span><span class="s1">IPprotocol</span><span class="s5">, </span><span class="s1">IPsource</span><span class="s5">, </span><span class="s1">IPtarget = struct.unpack(</span><span class="s4">'! 8x B B 2x 4s 4s'</span><span class="s5">, </span><span class="s1">logicalDataIn[:</span><span class="s6">20</span><span class="s1">])</span>
+    <span class="s3">return </span><span class="s1">version</span><span class="s5">, </span><span class="s1">header_length</span><span class="s5">, </span><span class="s1">timeToLive</span><span class="s5">, </span><span class="s1">IPprotocol</span><span class="s5">, </span><span class="s1">IPsource</span><span class="s5">, </span><span class="s1">IPtarget</span><span class="s5">, </span><span class="s1">format_ipv4(IPsource)</span><span class="s5">, </span><span class="s1">format_ipv4(IPtarget)</span><span class="s5">, </span><span class="s1">logicalDataIn[header_length:]</span>
+    <span class="s0"># SECOND-DEPTH ENCAPSULATION OPTIONS</span>
+        <span class="s0">#OPTION 1 : ICMP MESSAGE</span>
+<span class="s3">def </span><span class="s1">unpackICMP(logicalDataIn):</span>
+    <span class="s1">icmp_flag</span><span class="s5">, </span><span class="s1">packagingCode</span><span class="s5">, </span><span class="s1">chkSum = struct.unpack(</span><span class="s4">'! B B H'</span><span class="s5">, </span><span class="s1">logicalDataIn[</span><span class="s6">4</span><span class="s1">:])</span>
+        <span class="s0">#OPTION 2: TCP SEGMENT</span>
+<span class="s3">def </span><span class="s1">unpackTCP(logicalDataIn):</span>
+    <span class="s1">(source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">sequenceNum</span><span class="s5">, </span><span class="s1">acknowledgeNum</span><span class="s5">, </span><span class="s1">offset_reserved_nFlags) = struct.unpack(</span><span class="s4">'! H H L L H'</span><span class="s5">, </span><span class="s1">logicalDataIn[:</span><span class="s6">14</span><span class="s1">])</span>
+    <span class="s1">offsetSubSeg = (offset_reserved_nFlags &gt;&gt; </span><span class="s6">12</span><span class="s1">) * </span><span class="s6">4</span>
+    <span class="s1">flag_urgent = (offset_reserved_nFlags &amp; </span><span class="s6">32</span><span class="s1">) &gt;&gt; </span><span class="s6">5</span>
+    <span class="s1">flag_ack = (offset_reserved_nFlags &amp; </span><span class="s6">16</span><span class="s1">) &gt;&gt; </span><span class="s6">4</span>
+    <span class="s1">flag_push = (offset_reserved_nFlags &amp; </span><span class="s6">8</span><span class="s1">) &gt;&gt; </span><span class="s6">3</span>
+    <span class="s1">flag_reset = (offset_reserved_nFlags &amp; </span><span class="s6">4</span><span class="s1">) &gt;&gt; </span><span class="s6">2</span>
+    <span class="s1">flag_sync = (offset_reserved_nFlags &amp; </span><span class="s6">2</span><span class="s1">) &gt;&gt; </span><span class="s6">1</span>
+    <span class="s1">flag_finish = offset_reserved_nFlags &amp; </span><span class="s6">1</span>
+    <span class="s3">return </span><span class="s1">source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">sequenceNum</span><span class="s5">, </span><span class="s1">acknowledgeNum</span><span class="s5">, </span><span class="s1">flag_finish</span><span class="s5">, </span><span class="s1">flag_sync</span><span class="s5">, </span><span class="s1">flag_reset</span><span class="s5">,</span><span class="s1">flag_push</span><span class="s5">, </span><span class="s1">flag_urgent</span><span class="s5">, </span><span class="s1">flag_ack</span><span class="s5">, </span><span class="s1">logicalDataIn[offsetSubSeg:]</span>
+        <span class="s0">#OPTION 3: UDP DATAGRAM</span>
+<span class="s3">def </span><span class="s1">unpackUDP(logicalDataIn):</span>
+    <span class="s1">source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">size = struct.unpack(</span><span class="s4">'! H H 2x H'</span><span class="s5">, </span><span class="s1">logicalDataIn[:</span><span class="s6">8</span><span class="s1">])</span>
+    <span class="s3">return </span><span class="s1">source_port</span><span class="s5">, </span><span class="s1">destination_port</span><span class="s5">, </span><span class="s1">size</span><span class="s5">, </span><span class="s1">logicalDataIn[</span><span class="s6">8</span><span class="s1">:]</span>
+    <span class="s0"># FORMAT BYTSTRINGS PAYLOAD CONTENT DATA INTO MANAGEABLE COLUMNS</span>
+<span class="s3">def </span><span class="s1">format_bytestrings(prefix</span><span class="s5">, </span><span class="s1">bytestring</span><span class="s5">, </span><span class="s1">size=</span><span class="s6">80</span><span class="s1">):</span>
+    <span class="s1">size = len(prefix)</span>
+    <span class="s3">if </span><span class="s1">isinstance(bytestring</span><span class="s5">, </span><span class="s1">bytes):</span>
+        <span class="s1">bytestring = </span><span class="s4">''</span><span class="s1">.join(</span><span class="s4">r'\x{:02x}'</span><span class="s1">.format(byte) </span><span class="s3">for </span><span class="s1">byte </span><span class="s3">in </span><span class="s1">bytestring)</span>
+    <span class="s3">if </span><span class="s1">size % </span><span class="s6">2</span><span class="s1">:</span>
+        <span class="s1">size = </span><span class="s6">1</span>
+    <span class="s3">return </span><span class="s4">'</span><span class="s3">\n</span><span class="s4">'</span><span class="s1">.join([prefix + line </span><span class="s3">for </span><span class="s1">line </span><span class="s3">in </span><span class="s1">textwrap.wrap(bytestring</span><span class="s5">, </span><span class="s1">size)])</span>
+                    <span class="s0"># ////////// RUNTIME \\\\\\\\</span>
+<span class="s0"># RUNTIME EXECUTION CALL</span>
+<span class="s1">sniff()</span></pre>
+</body>
+</html>
